@@ -66,10 +66,9 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // 兼容浏览器额外编码：如果 target 不以 "http" 开头，说明被 encodeURIComponent 编码了一次
-  // 例如浏览器传来 "https%3A%2F%2F..." → 需要先 decode 一次才能 new URL()
-  if (!target.startsWith("http")) {
-    try { target = decodeURIComponent(target); } catch (_) { /* ignore */ }
+  // 兼容浏览器额外编码：循环 decode 直到以 "http" 开头（最多3次，防死循环）
+  for (let i = 0; i < 3 && !target.startsWith("http"); i++) {
+    try { target = decodeURIComponent(target); } catch (_) { break; }
   }
 
   let targetUrl: URL;
