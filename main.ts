@@ -46,14 +46,27 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   let target = url.searchParams.get("target");
 
+  // 支持 b64target 参数（base64 编码的 target URL，避免双重编码问题）
+  const b64target = url.searchParams.get("b64target");
+  if (b64target) {
+    try {
+      target = decodeURIComponent(escape(atob(b64target)));
+    } catch (_) {
+      return new Response(JSON.stringify({ error: "Invalid b64target" }), {
+        status: 400,
+        headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
+      });
+    }
+  }
+
   if (!target) {
-    return new Response(JSON.stringify({ error: "Missing target parameter" }), {
+    return new Response(JSON.stringify({ error: "Missing target parameter. Use ?target=URL or ?b64target=base64(URL)" }), {
       status: 400,
       headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
     });
   }
 
-  // 兼容双重编码：如果 target 里没有 "://" 说明被多编码了一次，尝试 decode
+  // 兼容双重编码：如果 target 里没有 "://" 说明被多编码了一次
   if (!target.includes("://")) {
     try { target = decodeURIComponent(target); } catch (_) { /* ignore */ }
   }
