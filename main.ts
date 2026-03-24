@@ -44,7 +44,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const url = new URL(req.url);
-  const target = url.searchParams.get("target");
+  let target = url.searchParams.get("target");
 
   if (!target) {
     return new Response(JSON.stringify({ error: "Missing target parameter" }), {
@@ -53,11 +53,16 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // 兼容双重编码：如果 target 里没有 "://" 说明被多编码了一次，尝试 decode
+  if (!target.includes("://")) {
+    try { target = decodeURIComponent(target); } catch (_) { /* ignore */ }
+  }
+
   let targetUrl: URL;
   try {
     targetUrl = new URL(target);
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid target URL" }), {
+    return new Response(JSON.stringify({ error: "Invalid target URL", received: target.substring(0, 100) }), {
       status: 400,
       headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
     });
