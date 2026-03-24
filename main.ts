@@ -66,8 +66,9 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // 兼容双重编码：如果 target 里没有 "://" 说明被多编码了一次
-  if (!target.includes("://")) {
+  // 兼容浏览器额外编码：如果 target 不以 "http" 开头，说明被 encodeURIComponent 编码了一次
+  // 例如浏览器传来 "https%3A%2F%2F..." → 需要先 decode 一次才能 new URL()
+  if (!target.startsWith("http")) {
     try { target = decodeURIComponent(target); } catch (_) { /* ignore */ }
   }
 
