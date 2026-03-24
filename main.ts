@@ -66,10 +66,8 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // 兼容浏览器额外编码：循环 decode 直到以 "http" 开头（最多3次，防死循环）
-  for (let i = 0; i < 3 && !target.startsWith("http"); i++) {
-    try { target = decodeURIComponent(target); } catch (_) { break; }
-  }
+  // target 由 url.searchParams.get() 自动 decode 一次，正常情况已是原始 URL
+  // 无需手动 decode
 
   let targetUrl: URL;
   try {
