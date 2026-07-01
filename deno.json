@@ -1,5 +1,9 @@
 {
   "tasks": {
-    "start": "deno run --allow-net main.ts"
+    "start": "deno run --allow-net --allow-fetch main.ts"
+  },
+  "deploy": {
+    "project": "steam-cors-proxy",
+    "entrypoint": "main.ts"
   }
 }
