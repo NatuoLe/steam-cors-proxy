@@ -1,13 +1,13 @@
 /**
- * Steam CORS Proxy - Deno Deploy
- * 公开访问，无需认证
+ * Steam CORS Proxy for LenatuoJam
+ * 专用于获取玩家游戏库数据，部署在 Deno Deploy
  */
-
 const ALLOWED_ORIGINS = [
-  "https://claudwang.github.io",
+  "https://natuole.github.io",
   "http://localhost:8080",
   "http://127.0.0.1:8080",
-  "null", // 本地直接打开 HTML 文件时
+  "null",
+  "http://134.175.64.88:8888",
 ];
 
 const ALLOWED_HOSTS = [
@@ -16,26 +16,86 @@ const ALLOWED_HOSTS = [
   "store.steampowered.com",
 ];
 
+const STEAM_API_KEY = "CD2B193068D2DAD3DB2120A8445CF19F";
+const STEAM_ID = "76561198842540431";
+
 function corsHeaders(origin: string): Record<string, string> {
   const allowed = ALLOWED_ORIGINS.includes(origin) || origin === "";
   return {
     "Access-Control-Allow-Origin": allowed ? (origin || "*") : ALLOWED_ORIGINS[0],
     "Access-Control-Allow-Methods": "GET, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Max-Age": "86400",
+    "Access-Control-Max-Age": "3600",
     "Vary": "Origin",
   };
+}
+
+function isSteamApiUrl(url: URL): boolean {
+  return url.hostname === "api.steampowered.com";
+}
+
+async function handleSteamApi(url: URL): Promise<Response> {
+  try {
+    const resp = await fetch(url.toString(), {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+      },
+    });
+    const body = await resp.text();
+    return new Response(body, {
+      status: resp.status,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+        "Cache-Control": "max-age=300",
+      },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: "Steam API fetch failed", detail: String(err) }),
+      { status: 502, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+    );
+  }
+}
+
+async function handleSteamCommunity(target: string): Promise<Response> {
+  try {
+    const resp = await fetch(target, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Referer": "https://steamcommunity.com/",
+        "Origin": "https://steamcommunity.com",
+      },
+    });
+    const body = await resp.text();
+    const ct = resp.headers.get("content-type") ?? "text/html";
+    return new Response(body, {
+      status: resp.status,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": ct,
+        "X-Steam-Status": String(resp.status),
+      },
+    });
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: "Steam fetch failed", detail: String(err) }),
+      { status: 502, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+    );
+  }
 }
 
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin") ?? "";
 
-  // OPTIONS 预检
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(origin) });
   }
 
-  // 只允许 GET
   if (req.method !== "GET") {
     return new Response(JSON.stringify({ error: "Method not allowed" }), {
       status: 405,
@@ -46,7 +106,6 @@ Deno.serve(async (req: Request) => {
   const url = new URL(req.url);
   let target = url.searchParams.get("target");
 
-  // 支持 b64target 参数（base64 编码的 target URL，避免双重编码问题）
   const b64target = url.searchParams.get("b64target");
   if (b64target) {
     try {
@@ -60,63 +119,38 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!target) {
-    return new Response(JSON.stringify({ error: "Missing target parameter. Use ?target=URL or ?b64target=base64(URL)" }), {
-      status: 400,
-      headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
+    const gamesUrl = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0002/?key=${STEAM_API_KEY}&steamid=${STEAM_ID}&format=json&include_appinfo=1&include_played_free_games=1`;
+    const apiResp = await handleSteamApi(new URL(gamesUrl));
+    return new Response(await apiResp.text(), {
+      status: apiResp.status,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+        "Cache-Control": "max-age=300",
+      },
     });
   }
-
-  // target 由 url.searchParams.get() 自动 decode 一次，正常情况已是原始 URL
-  // 无需手动 decode
 
   let targetUrl: URL;
   try {
     targetUrl = new URL(target);
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid target URL", received: target.substring(0, 100) }), {
+    return new Response(JSON.stringify({ error: "Invalid target URL" }), {
       status: 400,
       headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
     });
   }
 
-  // 只允许代理 Steam 域名
   if (!ALLOWED_HOSTS.some((h) => targetUrl.hostname.endsWith(h))) {
-    return new Response(JSON.stringify({ error: "Target host not allowed" }), {
+    return new Response(JSON.stringify({ error: "Host not allowed" }), {
       status: 403,
-      headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
+      headers: { ...corsOrigins(origin), "Content-Type": "application/json" },
     });
   }
 
-  try {
-    const steamResp = await fetch(targetUrl.toString(), {
-      method: "GET",
-      headers: {
-        "Referer": "https://steamcommunity.com/",
-        "Origin": "https://steamcommunity.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-      },
-    });
-
-    const body = await steamResp.text();
-    const contentType = steamResp.headers.get("content-type") ?? "application/json";
-
-    return new Response(body, {
-      status: steamResp.status,
-      headers: {
-        ...corsHeaders(origin),
-        "Content-Type": contentType,
-        "X-Steam-Status": String(steamResp.status),
-      },
-    });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ error: "Upstream request failed", detail: String(err) }),
-      {
-        status: 502,
-        headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
-      }
-    );
+  if (isSteamApiUrl(targetUrl)) {
+    return handleSteamApi(targetUrl);
+  } else {
+    return handleSteamCommunity(target);
   }
 });
