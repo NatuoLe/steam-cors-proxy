@@ -144,7 +144,7 @@ Deno.serve(async (req: Request) => {
   if (!ALLOWED_HOSTS.some((h) => targetUrl.hostname.endsWith(h))) {
     return new Response(JSON.stringify({ error: "Host not allowed" }), {
       status: 403,
-      headers: { ...corsOrigins(origin), "Content-Type": "application/json" },
+      headers: { ...corsHeaders(origin), "Content-Type": "application/json" },
     });
   }
 
